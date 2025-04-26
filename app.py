@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 import os
 import json
 import cv2
@@ -87,10 +87,16 @@ def health():
     logging.info(f"Received GET request to /health from {request.remote_addr}")
     return jsonify({"status": "ok", "model_loaded": model_loaded}), 200
 
+# Favicon endpoint
+@app.route('/favicon.ico', methods=['GET'])
+def favicon():
+    logging.info(f"Received GET request to /favicon.ico from {request.remote_addr}")
+    return Response(status=204)
+
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_files():
-    global model_loaded, model  # Move global declaration to the start
+    global model_loaded, model
     start_time = time()
     logging.debug(f"Received {request.method} request to /upload from {request.remote_addr}")
     
@@ -207,11 +213,11 @@ def serve_result(filename):
     return add_cors_headers(response)
 
 # Route to serve uploaded files (if needed)
-@app.route('/uploads/<filename>')
+@app.route('/Uploads/<filename>')
 def serve_upload(filename):
     start_time = time()
     response = send_from_directory(UPLOAD_FOLDER, filename)
-    logging.info(f"GET /uploads/{filename} processed in {time() - start_time:.3f} seconds")
+    logging.info(f"GET /Uploads/{filename} processed in {time() - start_time:.3f} seconds")
     return add_cors_headers(response)
 
 # Add OPTIONS handling for all routes to support CORS preflight requests

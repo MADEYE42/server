@@ -19,8 +19,8 @@ def get_advanced_model(num_classes):
     Returns:
         PyTorch model
     """
-    # Use pretrained=False to avoid downloading ResNet50 weights
-    model = models.resnet50(pretrained=False)
+    # Use weights=None to avoid downloading ResNet18 weights and suppress warnings
+    model = models.resnet18(weights=None)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -122,7 +122,9 @@ def main():
     # Load the model
     model = load_model(MODEL_PATH, num_classes=len(class_names), device=device)
 
-    if model is not None:
+    if model is None:
+        logging.error("Model loading failed.")
+    else:
         predictions = predict_single_image(IMAGE_PATH, model, class_names, device)
 
         if predictions:
@@ -131,8 +133,6 @@ def main():
                 logging.info(f"{i}. {pred['class']}: {pred['probability']:.2f}%")
         else:
             logging.error("Prediction failed.")
-    else:
-        logging.error("Model loading failed.")
 
 if __name__ == "__main__":
     main()
