@@ -3,62 +3,123 @@ import os
 import json
 import cv2
 import numpy as np
-from segmentation import load_json_and_image, draw_segmentation
-from prediction import predict_single_image, load_model
-from PIL import Image
 import torch
-from flask_cors import CORS
 import logging
 from time import time
 import threading
 import traceback
+import sys
+import gc
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging to output to both console and file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log')
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Force model path to be absolute
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(CURRENT_DIR, "model_path.pth")
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Enable CORS for all domains with proper configuration
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+# Import the flask_cors only after confirming it's installed
+try:
+    from flask_cors import CORS
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+    logger.info("CORS initialized successfully")
+except ImportError:
+    logger.error("flask_cors not installed. CORS support will not be available.")
+except Exception as e:
+    logger.error(f"Error initializing CORS: {str(e)}")
 
 # Directory for file uploads and results
-UPLOAD_FOLDER = 'uploads'
-RESULTS_FOLDER = 'results'
+UPLOAD_FOLDER = os.path.join(CURRENT_DIR, 'uploads')
+RESULTS_FOLDER = os.path.join(CURRENT_DIR, 'results')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
+logger.info(f"Created directories: {UPLOAD_FOLDER}, {RESULTS_FOLDER}")
 
 # Global variables
 model = None
 model_status = {
     "loaded": False,
     "loading": False,
-    "error": None
+    "error": None,
+    "last_attempt": None
 }
 
-def load_model_on_startup():
+# Import prediction functions only when needed to avoid startup failures
+def import_prediction_modules():
+    try:
+        logger.info("Importing prediction and segmentation modules...")
+        global load_json_and_image, draw_segmentation, predict_single_image, load_model
+        
+        # First, try to import from the current directory
+        sys.path.insert(0, CURRENT_DIR)
+        
+        from segmentation import load_json_and_image, draw_segmentation
+        from prediction import predict_single_image, load_model
+        
+        logger.info("Successfully imported prediction and segmentation modules")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to import modules: {str(e)}\n{traceback.format_exc()}")
+        return False
+
+# Execute import at startup
+import_success = import_prediction_modules()
+
+def load_model_function():
     global model, model_status
+    
     if model_status["loading"]:
+        logger.info("Model loading already in progress, skipping duplicate load")
         return
         
+    logger.info("=== STARTING MODEL LOADING PROCESS ===")
     model_status["loading"] = True
+    model_status["last_attempt"] = time()
+    
     try:
-        logger.info("Starting model loading process")
-        MODEL_PATH = "model_path.pth"
+        # Check if we can find the model file
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(f"Model file not found at path: {MODEL_PATH}")
+            
+        logger.info(f"Model file exists at {MODEL_PATH}, size: {os.path.getsize(MODEL_PATH)/1024/1024:.2f} MB")
+        
+        # Force garbage collection before loading model
+        gc.collect()
+        
+        # Log memory usage before loading
+        import psutil
+        process = psutil.Process(os.getpid())
+        logger.info(f"Memory usage before loading model: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+        
         # Force CPU usage to avoid CUDA issues on Render
         device = torch.device("cpu")
         logger.info(f"Loading model on device: {device}")
         
-        # Add a reduced timeout for Render environment
+        # Load the model
         model = load_model(MODEL_PATH, num_classes=10, device=device)
         
+        # Check if model loaded successfully
         if model is not None:
             model_status["loaded"] = True
             model_status["error"] = None
-            logger.info("Model loaded successfully")
+            logger.info("Model loaded successfully!")
+            
+            # Log memory after loading
+            logger.info(f"Memory usage after loading model: {process.memory_info().rss / 1024 / 1024:.2f} MB")
         else:
-            model_status["error"] = "Model failed to load but no exception was thrown"
+            model_status["error"] = "Model loading returned None without raising an exception"
             logger.error(model_status["error"])
     except Exception as e:
         error_msg = f"Failed to load model: {str(e)}\n{traceback.format_exc()}"
@@ -66,6 +127,7 @@ def load_model_on_startup():
         model_status["error"] = str(e)
     finally:
         model_status["loading"] = False
+        logger.info("=== MODEL LOADING PROCESS COMPLETED ===")
 
 # Add health endpoint that doesn't depend on model loading
 @app.route('/health', methods=['GET'])
@@ -75,19 +137,28 @@ def health_check():
         "message": "Server is running",
         "model_loaded": model_status["loaded"],
         "model_loading": model_status["loading"],
-        "model_error": model_status["error"]
+        "model_error": model_status["error"],
+        "model_path_exists": os.path.exists(MODEL_PATH) if MODEL_PATH else False,
+        "import_modules_success": import_success,
+        "last_load_attempt": model_status["last_attempt"]
     })
 
 # Start model loading in a separate thread
-@app.route('/load-model', methods=['POST'])
+@app.route('/load-model', methods=['GET', 'POST'])
 def trigger_model_load():
+    if not import_success:
+        return jsonify({
+            "error": "Cannot load model because required modules failed to import",
+            "status": "failed"
+        }), 500
+        
     if not model_status["loaded"] and not model_status["loading"]:
-        threading.Thread(target=load_model_on_startup, daemon=True).start()
-        return jsonify({"message": "Model loading started"})
+        threading.Thread(target=load_model_function, daemon=True).start()
+        return jsonify({"message": "Model loading started", "status": "loading"})
     elif model_status["loading"]:
-        return jsonify({"message": "Model is already loading"})
+        return jsonify({"message": "Model is already loading", "status": "loading"})
     elif model_status["loaded"]:
-        return jsonify({"message": "Model is already loaded"})
+        return jsonify({"message": "Model is already loaded", "status": "loaded"})
 
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
@@ -99,18 +170,29 @@ def upload_files():
         response = jsonify({"message": "CORS preflight request successful"})
         return response
         
+    if not import_success:
+        return jsonify({
+            "error": "Required modules failed to import. Server cannot process uploads.",
+            "status": "configuration_error"
+        }), 500
+        
     try:
         # Check if model is loaded
         global model, model_status
         if not model_status["loaded"]:
             # If model isn't loaded yet and not currently loading, start loading it
             if not model_status["loading"]:
-                threading.Thread(target=load_model_on_startup, daemon=True).start()
+                threading.Thread(target=load_model_function, daemon=True).start()
                 
             return jsonify({
-                'error': 'Model is not loaded yet',
+                'error': 'Model is not loaded yet. Please try again in a few moments.',
                 'model_status': model_status
             }), 503
+        
+        # Log the request content type and form data keys
+        logger.info(f"Request content type: {request.content_type}")
+        logger.info(f"Request form keys: {list(request.form.keys()) if request.form else None}")
+        logger.info(f"Request files keys: {list(request.files.keys()) if request.files else None}")
         
         # Check if files are included
         if 'image' not in request.files or 'json' not in request.files:
@@ -193,6 +275,11 @@ def serve_upload(filename):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def catch_all(path):
+    # Trigger model loading on first visit if not already loading
+    if not model_status["loaded"] and not model_status["loading"]:
+        logger.info("First visit detected, starting model loading in background")
+        threading.Thread(target=load_model_function, daemon=True).start()
+    
     return jsonify({
         "message": "Welcome to Heart Disease Detection API",
         "status": "ok",
@@ -205,7 +292,11 @@ def catch_all(path):
 # Main entry point
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    # Start model loading in background
-    threading.Thread(target=load_model_on_startup, daemon=True).start()
+    
+    # Trigger model loading on startup
+    logger.info("Application starting, triggering model loading")
+    threading.Thread(target=load_model_function, daemon=True).start()
+    
     # Debug set to False for production
+    logger.info(f"Starting Flask server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
