@@ -12,13 +12,13 @@ import logging
 from time import time
 import threading
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Set up logging to capture detailed errors
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Enable CORS for all domains (permissive for debugging)
+# Enable CORS for all domains
 CORS(app, supports_credentials=False)
 
 # Directory for file uploads and results
@@ -42,10 +42,10 @@ def load_model_on_startup():
         model_loaded = True
         logging.info("Model loaded successfully")
     except Exception as e:
-        logging.error(f"Failed to load model: {str(e)}")
+        logging.error(f"Failed to load model: {str(e)}", exc_info=True)
         model_loaded = False
 
-# Start model loading in a separate thread to avoid blocking app startup
+# Start model loading in a separate thread
 threading.Thread(target=load_model_on_startup, daemon=True).start()
 
 # Helper function to add CORS headers to all responses
@@ -59,6 +59,8 @@ def add_cors_headers(response):
 @app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_files():
     start_time = time()
+    logging.debug(f"Received {request.method} request to /upload")
+    
     # Handle preflight OPTIONS requests
     if request.method == 'OPTIONS':
         response = app.make_default_options_response()
@@ -145,13 +147,13 @@ def upload_files():
             return add_cors_headers(response)
             
         except Exception as e:
-            logging.error(f"Prediction error: {str(e)}")
+            logging.error(f"Prediction error: {str(e)}", exc_info=True)
             response = jsonify({"error": f"Prediction error: {str(e)}"}), 500
             logging.info(f"POST /upload failed (prediction exception) in {time() - start_time:.3f} seconds")
             return add_cors_headers(response[0]), response[1]
 
     except Exception as e:
-        logging.error(f"Error in upload process: {str(e)}")
+        logging.error(f"Error in upload process: {str(e)}", exc_info=True)
         response = jsonify({"error": str(e)}), 500
         logging.info(f"POST /upload failed (general exception) in {time() - start_time:.3f} seconds")
         return add_cors_headers(response[0]), response[1]
@@ -184,5 +186,4 @@ def options_handler(path):
 # Main entry point
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    # Debug set to False for production
     app.run(host="0.0.0.0", port=port, debug=False)
