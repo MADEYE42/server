@@ -43,7 +43,7 @@ def load_model_on_demand():
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 
                 # Use environment variable with fallback
-                MODEL_PATH = os.environ.get("MODEL_PATH", "model_path.pth")
+                MODEL_PATH = "model_path.pth"
                 
                 # Log the absolute path for debugging
                 abs_path = os.path.abspath(MODEL_PATH)

@@ -150,7 +150,7 @@ def predict_single_image(image_path, model, class_names, device):
         return None
 
 def main():
-    MODEL_PATH = os.environ.get("MODEL_PATH", "model_path.pth")
+    MODEL_PATH ="model_path.pth"  # Change this to your actual model path
     DATA_DIR = "SplittedDataNew/train"  # Change this to your actual dataset directory
     IMAGE_PATH = "./segmented_output.jpg"  # Change this to the test image path
 
