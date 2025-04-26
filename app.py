@@ -199,7 +199,8 @@ def options_handler(path):
     logging.info(f"OPTIONS /{path} processed in {time() - start_time:.3f} seconds")
     return add_cors_headers(response)
 
-# Main entry point
+# Main entry point (for local testing only; Render uses Gunicorn)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    logging.info(f"Starting Flask app on 0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
