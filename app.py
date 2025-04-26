@@ -37,7 +37,7 @@ def load_model_on_startup():
         MODEL_PATH = "model_path.pth"
         # Force CPU usage to avoid CUDA issues on Render
         device = torch.device("cpu")
-        logging.info(f"Loading model on device: {device}")
+        logging.info(f"Loading model from {MODEL_PATH} on device: {device}")
         model = load_model(MODEL_PATH, num_classes=10, device=device)
         model_loaded = True
         logging.info("Model loaded successfully")
@@ -52,7 +52,7 @@ threading.Thread(target=load_model_on_startup, daemon=True).start()
 def add_cors_headers(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,HEAD')
     return response
 
 # Handle 405 Method Not Allowed errors
@@ -70,6 +70,12 @@ def handle_error(error):
     response = jsonify({"error": "Internal server error"})
     response.status_code = 500
     return add_cors_headers(response)
+
+# Root endpoint for health checks
+@app.route('/', methods=['GET', 'HEAD'])
+def root():
+    logging.info(f"Received {request.method} request to / from {request.remote_addr}")
+    return jsonify({"status": "ok", "message": "Server is running"}), 200
 
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])

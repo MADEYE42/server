@@ -15,7 +15,8 @@ def get_advanced_model(num_classes):
     Returns:
         PyTorch model
     """
-    model = models.resnet50(pretrained=True)
+    # Use pretrained=False to avoid downloading ResNet50 weights
+    model = models.resnet50(pretrained=False)
 
     for param in model.parameters():
         param.requires_grad = True
@@ -48,7 +49,8 @@ def load_model(model_path, num_classes, device):
     """
     try:
         model = get_advanced_model(num_classes)
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        # Use weights_only=True for security and future compatibility
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         model = model.to(device)
         model.eval()
         print("Model loaded successfully.")
@@ -104,7 +106,7 @@ def main():
     DATA_DIR = "SplittedDataNew/train"  # Change this to your actual dataset directory
     IMAGE_PATH = "./segmented_output.jpg"  # Change this to the test image path
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")  # Force CPU for Render compatibility
     print(f"Using device: {device}")
 
     class_names = sorted([
