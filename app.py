@@ -90,6 +90,7 @@ def health():
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_files():
+    global model_loaded, model  # Move global declaration to the start
     start_time = time()
     logging.debug(f"Received {request.method} request to /upload from {request.remote_addr}")
     
@@ -109,7 +110,6 @@ def upload_files():
             time.sleep(2)
         
         # Check if model is loaded
-        global model_loaded, model
         if not model_loaded:
             response = jsonify({'error': 'Failed to load model after retries. Please try again later.'}), 503
             logging.info(f"POST /upload rejected (model not loaded) in {time() - start_time:.3f} seconds")
