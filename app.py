@@ -11,6 +11,7 @@ from flask_cors import CORS
 import logging
 from time import time
 import threading
+import gc
 
 # Set up logging to capture detailed errors
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,12 +38,28 @@ def load_model_on_demand():
     with model_lock:
         if not model_loaded:
             try:
-                MODEL_PATH = "model_path.pth"
+                # Force garbage collection before loading model
+                gc.collect()
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                
+                # Use environment variable with fallback
+                MODEL_PATH = os.environ.get("MODEL_PATH", "model_path.pth")
+                
+                # Log the absolute path for debugging
+                abs_path = os.path.abspath(MODEL_PATH)
+                logging.info(f"Attempting to load model from {abs_path}")
+                
+                # Check if file exists before loading
+                if not os.path.exists(MODEL_PATH):
+                    logging.error(f"Model file not found at {abs_path}")
+                    raise FileNotFoundError(f"Model file not found at {abs_path}")
+                
                 device = torch.device("cpu")
-                logging.info(f"Attempting to load model from {MODEL_PATH} on device: {device}")
                 model = load_model(MODEL_PATH, num_classes=10, device=device)
+                
                 if model is None:
                     raise ValueError("Model loading returned None")
+                    
                 model_loaded = True
                 logging.info("Model loaded successfully")
             except Exception as e:
@@ -87,6 +104,49 @@ def health():
     logging.info(f"Received GET request to /health from {request.remote_addr}")
     return jsonify({"status": "ok", "model_loaded": model_loaded}), 200
 
+# Debug model path and existence
+@app.route('/debug-model', methods=['GET'])
+def debug_model():
+    MODEL_PATH = os.environ.get("MODEL_PATH", "model_path.pth")
+    
+    response_data = {
+        "model_path": MODEL_PATH,
+        "absolute_path": os.path.abspath(MODEL_PATH),
+        "file_exists": os.path.exists(MODEL_PATH),
+        "current_directory": os.getcwd(),
+        "directory_contents": os.listdir('.')
+    }
+    
+    if os.path.exists(MODEL_PATH):
+        response_data["file_size_mb"] = os.path.getsize(MODEL_PATH) / (1024 * 1024)
+    
+    return jsonify(response_data)
+
+# Route to manually trigger model loading
+@app.route('/load-model', methods=['GET'])
+def load_model_route():
+    """Route to manually trigger model loading and check status"""
+    start_time = time()
+    
+    # Attempt to load the model
+    load_model_on_demand()
+    
+    # Check and report status
+    if model_loaded:
+        response = jsonify({
+            "status": "success", 
+            "message": "Model loaded successfully",
+            "loading_time": f"{time() - start_time:.3f} seconds"
+        })
+        return add_cors_headers(response)
+    else:
+        response = jsonify({
+            "status": "error", 
+            "message": "Failed to load model. Check server logs for details.",
+            "loading_time": f"{time() - start_time:.3f} seconds"
+        }), 500
+        return add_cors_headers(response[0]), response[1]
+
 # Favicon endpoint
 @app.route('/favicon.ico', methods=['GET'])
 def favicon():
@@ -113,7 +173,9 @@ def upload_files():
             if model_loaded:
                 break
             logging.warning(f"Model loading attempt {attempt + 1} failed, retrying...")
-            time.sleep(2)
+            # Sleep between retries
+            import time as pytime
+            pytime.sleep(2)
         
         # Check if model is loaded
         if not model_loaded:
