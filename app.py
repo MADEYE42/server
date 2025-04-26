@@ -55,11 +55,27 @@ def add_cors_headers(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
+# Handle 405 Method Not Allowed errors
+@app.errorhandler(405)
+def method_not_allowed(error):
+    logging.error(f"Method Not Allowed: {request.method} on {request.path}")
+    response = jsonify({"error": f"Method {request.method} not allowed for {request.path}"})
+    response.status_code = 405
+    return add_cors_headers(response)
+
+# Handle 500 Internal Server errors
+@app.errorhandler(Exception)
+def handle_error(error):
+    logging.error(f"Server error: {str(error)}", exc_info=True)
+    response = jsonify({"error": "Internal server error"})
+    response.status_code = 500
+    return add_cors_headers(response)
+
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_files():
     start_time = time()
-    logging.debug(f"Received {request.method} request to /upload")
+    logging.debug(f"Received {request.method} request to /upload from {request.remote_addr}")
     
     # Handle preflight OPTIONS requests
     if request.method == 'OPTIONS':
