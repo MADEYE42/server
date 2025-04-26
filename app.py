@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 app = Flask(__name__)
 
 # Enable CORS for all domains
-CORS(app, supports_credentials=False)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 # Directory for file uploads and results
 UPLOAD_FOLDER = 'Uploads'
@@ -43,7 +43,7 @@ def load_model_on_demand():
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 
                 # Use environment variable with fallback
-                MODEL_PATH = "model_path.pth"
+                MODEL_PATH = "model_path.pth"  # Default model path, can be overridden by environment variable
                 
                 # Log the absolute path for debugging
                 abs_path = os.path.abspath(MODEL_PATH)
@@ -93,21 +93,35 @@ def handle_error(error):
     return add_cors_headers(response)
 
 # Root endpoint for health checks
-@app.route('/', methods=['GET', 'HEAD'])
+@app.route('/', methods=['GET', 'HEAD', 'OPTIONS'])
 def root():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     logging.info(f"Received {request.method} request to / from {request.remote_addr}")
-    return jsonify({"status": "ok", "message": "Server is running", "model_loaded": model_loaded}), 200
+    response = jsonify({"status": "ok", "message": "Server is running", "model_loaded": model_loaded})
+    return add_cors_headers(response)
 
 # Health check endpoint
-@app.route('/health', methods=['GET'])
+@app.route('/health', methods=['GET', 'OPTIONS'])
 def health():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     logging.info(f"Received GET request to /health from {request.remote_addr}")
-    return jsonify({"status": "ok", "model_loaded": model_loaded}), 200
+    response = jsonify({"status": "ok", "model_loaded": model_loaded})
+    return add_cors_headers(response)
 
 # Debug model path and existence
-@app.route('/debug-model', methods=['GET'])
+@app.route('/debug-model', methods=['GET', 'OPTIONS'])
 def debug_model():
-    MODEL_PATH = os.environ.get("MODEL_PATH", "model_path.pth")
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
+    MODEL_PATH = "model_path.pth"  # Default model path, can be overridden by environment variable
     
     response_data = {
         "model_path": MODEL_PATH,
@@ -120,11 +134,15 @@ def debug_model():
     if os.path.exists(MODEL_PATH):
         response_data["file_size_mb"] = os.path.getsize(MODEL_PATH) / (1024 * 1024)
     
-    return jsonify(response_data)
+    return add_cors_headers(jsonify(response_data))
 
 # Route to manually trigger model loading
-@app.route('/load-model', methods=['GET'])
+@app.route('/load-model', methods=['GET', 'OPTIONS'])
 def load_model_route():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     """Route to manually trigger model loading and check status"""
     start_time = time()
     
@@ -148,8 +166,12 @@ def load_model_route():
         return add_cors_headers(response[0]), response[1]
 
 # Favicon endpoint
-@app.route('/favicon.ico', methods=['GET'])
+@app.route('/favicon.ico', methods=['GET', 'OPTIONS'])
 def favicon():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     logging.info(f"Received GET request to /favicon.ico from {request.remote_addr}")
     return Response(status=204)
 
@@ -267,22 +289,30 @@ def upload_files():
         return add_cors_headers(response[0]), response[1]
 
 # Route to serve the segmented images
-@app.route('/results/<filename>')
+@app.route('/results/<filename>', methods=['GET', 'OPTIONS'])
 def serve_result(filename):
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     start_time = time()
     response = send_from_directory(RESULTS_FOLDER, filename)
     logging.info(f"GET /results/{filename} processed in {time() - start_time:.3f} seconds")
     return add_cors_headers(response)
 
 # Route to serve uploaded files (if needed)
-@app.route('/Uploads/<filename>')
+@app.route('/Uploads/<filename>', methods=['GET', 'OPTIONS'])
 def serve_upload(filename):
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return add_cors_headers(response)
+        
     start_time = time()
     response = send_from_directory(UPLOAD_FOLDER, filename)
     logging.info(f"GET /Uploads/{filename} processed in {time() - start_time:.3f} seconds")
     return add_cors_headers(response)
 
-# Add OPTIONS handling for all routes to support CORS preflight requests
+# Handle OPTIONS requests for any route
 @app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
 @app.route('/<path:path>', methods=['OPTIONS'])
 def options_handler(path):

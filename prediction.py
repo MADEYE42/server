@@ -70,23 +70,35 @@ def load_model(model_path, num_classes, device):
             logging.error("Failed to create model architecture")
             return None
             
-        # Load with error handling and explicit options
+        # Load with error handling and trying different methods
         try:
-            # Use weights_only=True for security and future compatibility
-            state_dict = torch.load(
-                model_path, 
-                map_location=device, 
-                weights_only=True
-            )
-            model.load_state_dict(state_dict)
-            logging.info("State dict loaded successfully")
-        except RuntimeError as e:
-            logging.error(f"Runtime error loading state dict: {str(e)}")
-            # Try alternative loading method for older saved models
-            logging.info("Trying alternative loading method...")
-            state_dict = torch.load(model_path, map_location=device)
-            model.load_state_dict(state_dict)
-            logging.info("State dict loaded with alternative method")
+            # First try: standard loading with weights_only
+            try:
+                state_dict = torch.load(model_path, map_location=device, weights_only=True)
+                model.load_state_dict(state_dict)
+                logging.info("State dict loaded successfully with weights_only=True")
+            except:
+                # Second try: standard loading without weights_only (for older PyTorch versions)
+                state_dict = torch.load(model_path, map_location=device)
+                model.load_state_dict(state_dict)
+                logging.info("State dict loaded successfully without weights_only parameter")
+        except Exception as e:
+            # Third try: try to load directly without state_dict
+            logging.warning(f"Standard loading failed: {str(e)}, trying alternative methods")
+            try:
+                loaded_model = torch.load(model_path, map_location=device)
+                if isinstance(loaded_model, dict) and 'state_dict' in loaded_model:
+                    model.load_state_dict(loaded_model['state_dict'])
+                    logging.info("Model loaded from 'state_dict' key in dictionary")
+                elif isinstance(loaded_model, nn.Module):
+                    model = loaded_model
+                    logging.info("Loaded complete model directly")
+                else:
+                    logging.error("Unknown model format")
+                    return None
+            except Exception as load_error:
+                logging.error(f"All loading methods failed: {str(load_error)}")
+                return None
             
         model = model.to(device)
         model.eval()
@@ -150,7 +162,7 @@ def predict_single_image(image_path, model, class_names, device):
         return None
 
 def main():
-    MODEL_PATH ="model_path.pth"  # Change this to your actual model path
+    MODEL_PATH = "model_path.pth"  # Change this to the actual model path
     DATA_DIR = "SplittedDataNew/train"  # Change this to your actual dataset directory
     IMAGE_PATH = "./segmented_output.jpg"  # Change this to the test image path
 
