@@ -53,10 +53,10 @@ def load_model(model_path, num_classes, device):
         model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         model = model.to(device)
         model.eval()
-        print("Model loaded successfully.")
+        logging.info("Model loaded successfully in load_model")
         return model
     except Exception as e:
-        print(f"Error loading model: {e}")
+        logging.error(f"Error loading model: {str(e)}", exc_info=True)
         return None
 
 def predict_single_image(image_path, model, class_names, device):
@@ -98,7 +98,7 @@ def predict_single_image(image_path, model, class_names, device):
 
             return results
     except Exception as e:
-        print(f"Error during prediction: {e}")
+        logging.error(f"Error during prediction: {str(e)}", exc_info=True)
         return None
 
 def main():
@@ -107,13 +107,13 @@ def main():
     IMAGE_PATH = "./segmented_output.jpg"  # Change this to the test image path
 
     device = torch.device("cpu")  # Force CPU for Render compatibility
-    print(f"Using device: {device}")
+    logging.info(f"Using device: {device}")
 
     class_names = sorted([
         d for d in os.listdir(DATA_DIR)
         if os.path.isdir(os.path.join(DATA_DIR, d)) and not d.startswith('.')
     ])
-    print(f"Detected classes: {class_names}")
+    logging.info(f"Detected classes: {class_names}")
 
     # Load the model
     model = load_model(MODEL_PATH, num_classes=len(class_names), device=device)
@@ -122,13 +122,13 @@ def main():
         predictions = predict_single_image(IMAGE_PATH, model, class_names, device)
 
         if predictions:
-            print("\nTop 5 Predictions:")
+            logging.info("\nTop 5 Predictions:")
             for i, pred in enumerate(predictions, 1):
-                print(f"{i}. {pred['class']}: {pred['probability']:.2f}%")
+                logging.info(f"{i}. {pred['class']}: {pred['probability']:.2f}%")
         else:
-            print("Prediction failed.")
+            logging.error("Prediction failed.")
     else:
-        print("Model loading failed.")
+        logging.error("Model loading failed.")
 
 if __name__ == "__main__":
     main()

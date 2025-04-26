@@ -30,23 +30,27 @@ os.makedirs(RESULTS_FOLDER, exist_ok=True)
 # Global variable to track if model is loaded
 model_loaded = False
 model = None
+model_lock = threading.Lock()
 
-def load_model_on_startup():
+def load_model_on_demand():
     global model, model_loaded
-    try:
-        MODEL_PATH = "model_path.pth"
-        # Force CPU usage to avoid CUDA issues on Render
-        device = torch.device("cpu")
-        logging.info(f"Loading model from {MODEL_PATH} on device: {device}")
-        model = load_model(MODEL_PATH, num_classes=10, device=device)
-        model_loaded = True
-        logging.info("Model loaded successfully")
-    except Exception as e:
-        logging.error(f"Failed to load model: {str(e)}", exc_info=True)
-        model_loaded = False
-
-# Start model loading in a separate thread
-threading.Thread(target=load_model_on_startup, daemon=True).start()
+    with model_lock:
+        if not model_loaded:
+            try:
+                MODEL_PATH = "model_path.pth"
+                device = torch.device("cpu")
+                logging.info(f"Loading model from {MODEL_PATH} on device: {device}")
+                model = load_model(MODEL_PATH, num_classes=10, device=device)
+                if model is None:
+                    raise ValueError("Model loading returned None")
+                model_loaded = True
+                logging.info("Model loaded successfully")
+            except Exception as e:
+                logging.error(f"Failed to load model: {str(e)}", exc_info=True)
+                model_loaded = False
+                model = None
+        else:
+            logging.info("Model already loaded")
 
 # Helper function to add CORS headers to all responses
 def add_cors_headers(response):
@@ -75,7 +79,7 @@ def handle_error(error):
 @app.route('/', methods=['GET', 'HEAD'])
 def root():
     logging.info(f"Received {request.method} request to / from {request.remote_addr}")
-    return jsonify({"status": "ok", "message": "Server is running"}), 200
+    return jsonify({"status": "ok", "message": "Server is running", "model_loaded": model_loaded}), 200
 
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
@@ -90,10 +94,13 @@ def upload_files():
         return add_cors_headers(response)
         
     try:
+        # Load model if not already loaded
+        load_model_on_demand()
+        
         # Check if model is loaded
         global model_loaded, model
         if not model_loaded:
-            response = jsonify({'error': 'Model is still loading. Please try again in a few moments.'}), 503
+            response = jsonify({'error': 'Failed to load model. Please try again later.'}), 503
             logging.info(f"POST /upload rejected (model not loaded) in {time() - start_time:.3f} seconds")
             return add_cors_headers(response[0]), response[1]
         
