@@ -4,6 +4,10 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import torchvision.models as models
 from PIL import Image
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_advanced_model(num_classes):
     """
@@ -122,7 +126,7 @@ def main():
         predictions = predict_single_image(IMAGE_PATH, model, class_names, device)
 
         if predictions:
-            logging.info("\nTop 5 Predictions:")
+            logging.info("Top 5 Predictions:")
             for i, pred in enumerate(predictions, 1):
                 logging.info(f"{i}. {pred['class']}: {pred['probability']:.2f}%")
         else:

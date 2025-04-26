@@ -22,7 +22,7 @@ app = Flask(__name__)
 CORS(app, supports_credentials=False)
 
 # Directory for file uploads and results
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = 'Uploads'
 RESULTS_FOLDER = 'results'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
@@ -39,7 +39,7 @@ def load_model_on_demand():
             try:
                 MODEL_PATH = "model_path.pth"
                 device = torch.device("cpu")
-                logging.info(f"Loading model from {MODEL_PATH} on device: {device}")
+                logging.info(f"Attempting to load model from {MODEL_PATH} on device: {device}")
                 model = load_model(MODEL_PATH, num_classes=10, device=device)
                 if model is None:
                     raise ValueError("Model loading returned None")
@@ -81,6 +81,12 @@ def root():
     logging.info(f"Received {request.method} request to / from {request.remote_addr}")
     return jsonify({"status": "ok", "message": "Server is running", "model_loaded": model_loaded}), 200
 
+# Health check endpoint
+@app.route('/health', methods=['GET'])
+def health():
+    logging.info(f"Received GET request to /health from {request.remote_addr}")
+    return jsonify({"status": "ok", "model_loaded": model_loaded}), 200
+
 # Route for uploading image and JSON files
 @app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_files():
@@ -94,13 +100,18 @@ def upload_files():
         return add_cors_headers(response)
         
     try:
-        # Load model if not already loaded
-        load_model_on_demand()
+        # Load model if not already loaded (with retries)
+        for attempt in range(3):
+            load_model_on_demand()
+            if model_loaded:
+                break
+            logging.warning(f"Model loading attempt {attempt + 1} failed, retrying...")
+            time.sleep(2)
         
         # Check if model is loaded
         global model_loaded, model
         if not model_loaded:
-            response = jsonify({'error': 'Failed to load model. Please try again later.'}), 503
+            response = jsonify({'error': 'Failed to load model after retries. Please try again later.'}), 503
             logging.info(f"POST /upload rejected (model not loaded) in {time() - start_time:.3f} seconds")
             return add_cors_headers(response[0]), response[1]
         
