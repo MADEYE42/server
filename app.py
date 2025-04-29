@@ -17,11 +17,9 @@ logging.basicConfig(level=logging.INFO)
 # Initialize Flask app
 app = Flask(__name__)
 
-# Enable CORS
-CORS(app, resources={r"/upload": {"origins": "https://heart-disease-detection-5uktr7ulx-gouresh-madyes-projects.vercel.app"}})
-CORS(app, resources={r"/results/*": {"origins": "*"}}) # Allow all origins for serving results (less strict)
-CORS(app, resources={r"/health": {"origins": "*"}})
-CORS(app, resources={r"/": {"origins": "*"}})
+# Enable CORS - Update to allow your Vercel frontend URL
+# For initial development, allow all origins
+CORS(app)
 
 # Directory for file uploads and results
 UPLOAD_FOLDER = 'uploads'
@@ -46,12 +44,18 @@ def initialize_model():
         logging.error(f"Failed to load model: {str(e)}")
         return False
 
-# Route for health check
+# Route for CORS preflight check
+@app.route('/test-cors', methods=['GET', 'OPTIONS'])
+def test_cors():
+    return jsonify({"message": "CORS is working"})
+
+# Root route
 @app.route('/', methods=['GET'])
 def root():
     response = jsonify({"status": "service is running"})
     return response
 
+# Route for health check
 @app.route('/health', methods=['GET'])
 def health_check():
     global model
@@ -68,7 +72,7 @@ def health_check():
 def upload_files():
     start_time = time()
 
-    # Handle preflight OPTIONS requests explicitly (though Flask-CORS should handle this)
+    # Handle preflight OPTIONS requests explicitly
     if request.method == 'OPTIONS':
         response = app.make_default_options_response()
         logging.info(f"OPTIONS /upload processed in {time() - start_time:.3f} seconds")
@@ -84,6 +88,9 @@ def upload_files():
                 logging.info(f"POST /upload rejected (model loading failed) in {time() - start_time:.3f} seconds")
                 return response
 
+        # Log the request headers for debugging
+        logging.info(f"Request headers: {request.headers}")
+        
         # Check if files are included
         if 'image' not in request.files or 'json' not in request.files:
             response = jsonify({'error': 'No image or JSON file part in the request'}), 400
@@ -146,11 +153,15 @@ def upload_files():
 
             logging.info(f"Predictions: {predictions}")
 
+            # Construct the full URL for the segmented image
+            base_url = request.url_root.rstrip('/')
+            segmented_image_url = f"{base_url}/results/{segmented_image_filename}"
+
             # Return results to frontend
             response = jsonify({
                 "predictions": predictions,
                 "annotations": data["shapes"],
-                "segmented_image": f'/results/{segmented_image_filename}'
+                "segmented_image": segmented_image_url  # Use full URL
             })
             logging.info(f"POST /upload completed in {time() - start_time:.3f} seconds")
             return response
