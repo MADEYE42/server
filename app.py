@@ -199,5 +199,5 @@ initialize_model()
 
 # For local development only - not used on Render
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8080))  # ✅ Default to 8080 for Cloud Run
     app.run(host="0.0.0.0", port=port, debug=False)
