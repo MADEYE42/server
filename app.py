@@ -39,7 +39,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def initialize_model():
     global model, model_loaded
     try:
-        model_path = os.environ.get("MODEL_PATH", "model.pth")
+        model_path = os.environ.get("MODEL_PATH", "model_path.pth")
         logging.info(f"Loading model from {model_path} on device: {device}")
         model = load_model(model_path, num_classes=10, device=device)
         model_loaded = True
