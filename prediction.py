@@ -12,17 +12,9 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def get_advanced_model(num_classes):
     """
     Recreate the model architecture used in training.
-    
-    Args:
-        num_classes (int): Number of classes in the model
-    
-    Returns:
-        PyTorch model
     """
     try:
-        # Use weights=None to avoid downloading ResNet18 weights and suppress warnings
         model = models.resnet18(weights=None)
-
         for param in model.parameters():
             param.requires_grad = True
 
@@ -37,174 +29,74 @@ def get_advanced_model(num_classes):
             nn.Dropout(0.4),
             nn.Linear(512, num_classes)
         )
-        
         return model
     except Exception as e:
-        logging.error(f"Error creating model architecture: {str(e)}", exc_info=True)
+        logging.error(f"Error creating model: {str(e)}", exc_info=True)
         return None
 
 def load_model(model_path, num_classes, device):
     """
-    Load the trained model.
-    
-    Args:
-        model_path (str): Path to the saved model weights
-        num_classes (int): Number of classes in the model
-        device (torch.device): Device to load the model onto
-    
-    Returns:
-        Loaded PyTorch model or None if there's an error
+    Load the trained model with the specified weights.
     """
     try:
-        # Check if the model file exists and log its size
         if not os.path.exists(model_path):
             logging.error(f"Model file not found at {model_path}")
             return None
-            
+
         file_size_mb = os.path.getsize(model_path) / (1024 * 1024)
-        logging.info(f"Model file found at {model_path}, size: {file_size_mb:.2f} MB")
-        
-        # Create the model architecture
+        logging.info(f"Model file size: {file_size_mb:.2f} MB")
+
         model = get_advanced_model(num_classes)
         if model is None:
-            logging.error("Failed to create model architecture")
+            logging.error("Failed to initialize model architecture")
             return None
-            
-        # Load with error handling and trying different methods
-        try:
-            # First try: standard loading with weights_only
-            try:
-                state_dict = torch.load(model_path, map_location=device, weights_only=True)
-                model.load_state_dict(state_dict)
-                logging.info("State dict loaded successfully with weights_only=True")
-            except:
-                # Second try: standard loading without weights_only (for older PyTorch versions)
-                state_dict = torch.load(model_path, map_location=device)
-                model.load_state_dict(state_dict)
-                logging.info("State dict loaded successfully without weights_only parameter")
-        except Exception as e:
-            # Third try: try to load directly without state_dict
-            logging.warning(f"Standard loading failed: {str(e)}, trying alternative methods")
-            try:
-                loaded_model = torch.load(model_path, map_location=device)
-                if isinstance(loaded_model, dict) and 'state_dict' in loaded_model:
-                    model.load_state_dict(loaded_model['state_dict'])
-                    logging.info("Model loaded from 'state_dict' key in dictionary")
-                elif isinstance(loaded_model, nn.Module):
-                    model = loaded_model
-                    logging.info("Loaded complete model directly")
-                else:
-                    logging.error("Unknown model format")
-                    return None
-            except Exception as load_error:
-                logging.error(f"All loading methods failed: {str(load_error)}")
-                return None
-            
-        model = model.to(device)
+
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.to(device)
         model.eval()
-        logging.info(f"Model successfully loaded and moved to {device}")
-        
-        # Force garbage collection to free memory
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        
+        logging.info("✅ Model loaded successfully.")
         return model
+
     except Exception as e:
-        logging.error(f"Error loading model: {str(e)}", exc_info=True)
+        logging.error(f"❌ Error loading model: {str(e)}", exc_info=True)
         return None
 
-def predict_single_image(image_path, model, class_names, device):
+def predict_image(image_path, model, device, class_names):
     """
-    Predict the class of a single image.
-    
-    Args:
-        image_path (str): Path to the image file
-        model (torch.nn.Module): Loaded PyTorch model
-        class_names (list): List of class names
-        device (torch.device): Device to run prediction on
-    
-    Returns:
-        Prediction results or None if there's an error
+    Make prediction on a single image.
     """
     try:
-        # Check if image file exists
         if not os.path.exists(image_path):
-            logging.error(f"Image file not found at {image_path}")
+            logging.error(f"Image not found: {image_path}")
             return None
-            
+
+        image = Image.open(image_path).convert('RGB')
         transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                 [0.229, 0.224, 0.225])
         ])
-
-        image = Image.open(image_path).convert("RGB")
-        input_tensor = transform(image).unsqueeze(0).to(device)
+        image_tensor = transform(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            outputs = model(input_tensor)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            top_k_probs, top_k_indices = torch.topk(probabilities, k=5)
+            outputs = model(image_tensor)
+            _, predicted = torch.max(outputs, 1)
+            prediction = class_names[predicted.item()]
+            logging.info(f"✅ Prediction: {prediction}")
+            return prediction
 
-            top_k_probs = top_k_probs.cpu().numpy()[0]
-            top_k_indices = top_k_indices.cpu().numpy()[0]
-
-            results = [{
-                'class': class_names[idx],
-                'probability': float(prob * 100)
-            } for prob, idx in zip(top_k_probs, top_k_indices)]
-
-            return results
     except Exception as e:
-        logging.error(f"Error during prediction: {str(e)}", exc_info=True)
+        logging.error(f"❌ Error predicting image: {str(e)}", exc_info=True)
         return None
 
-def main():
-    MODEL_PATH = "model_path.pth"  # Change this to the actual model path
-    DATA_DIR = "SplittedDataNew/train"  # Change this to your actual dataset directory
-    IMAGE_PATH = "./segmented_output.jpg"  # Change this to the test image path
-
-    device = torch.device("cpu")  # Force CPU for Render compatibility
-    logging.info(f"Using device: {device}")
-
-    # Check if model file exists
-    if not os.path.exists(MODEL_PATH):
-        logging.error(f"Model file not found at {MODEL_PATH}")
-        return
-
-    # Check if data directory exists
-    if not os.path.exists(DATA_DIR):
-        logging.error(f"Data directory not found at {DATA_DIR}")
-        class_names = ["3VT", "ARSA", "AVSD", "Dilated Cardiac Sinus", "ECIF", "HLHS", "LVOT", "Normal Heart", "TGA", "VSD"]
-    else:
-        class_names = sorted([
-            d for d in os.listdir(DATA_DIR)
-            if os.path.isdir(os.path.join(DATA_DIR, d)) and not d.startswith('.')
-        ])
-    
-    logging.info(f"Using classes: {class_names}")
-
-    # Load the model
-    model = load_model(MODEL_PATH, num_classes=len(class_names), device=device)
-
-    if model is None:
-        logging.error("Model loading failed.")
-    else:
-        # Check if test image exists
-        if not os.path.exists(IMAGE_PATH):
-            logging.error(f"Test image not found at {IMAGE_PATH}")
-            return
-            
-        predictions = predict_single_image(IMAGE_PATH, model, class_names, device)
-
-        if predictions:
-            logging.info("Top 5 Predictions:")
-            for i, pred in enumerate(predictions, 1):
-                logging.info(f"{i}. {pred['class']}: {pred['probability']:.2f}%")
-        else:
-            logging.error("Prediction failed.")
-
 if __name__ == "__main__":
-    main()
+    model_path = "path/to/model.pth"
+    image_path = "path/to/test/image.jpg"
+    class_names = ["Class1", "Class2", "Class3"]  # Update this as per your model
+    num_classes = len(class_names)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = load_model(model_path, num_classes, device)
+    if model:
+        predict_image(image_path, model, device, class_names)
