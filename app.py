@@ -1,16 +1,15 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+import uuid
 import json
+import logging
 import cv2
-import numpy as np
+import torch
+from PIL import Image
+from time import time
 from segmentation import load_json_and_image, draw_segmentation
 from prediction import predict_image, load_model
-from PIL import Image
-import torch
-import logging
-from time import time
-import uuid
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -35,12 +34,12 @@ def allowed_file(filename, allowed_exts):
 # Model
 model = None
 model_loaded = False
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def initialize_model():
     global model, model_loaded
     try:
-        model_path = os.environ.get("MODEL_PATH", "model_path.pth")
+        model_path = os.environ.get("MODEL_PATH", "model.pth")
         logging.info(f"Loading model from {model_path} on device: {device}")
         model = load_model(model_path, num_classes=10, device=device)
         model_loaded = True
@@ -104,8 +103,9 @@ def upload():
         segmented_image_path = os.path.join(RESULTS_FOLDER, segmented_image_filename)
         cv2.imwrite(segmented_image_path, segmented_image)
 
-        classes = ["3VT", "ARSA", "AVSD", "Dilated Cardiac Sinus", "ECIF", "HLHS", "LVOT", "Normal Heart", "TGA", "VSD"]
-        predictions = predict_single_image(segmented_image_path, model, classes, device)
+        # Prediction
+        class_names = ["3VT", "ARSA", "AVSD", "Dilated Cardiac Sinus", "ECIF", "HLHS", "LVOT", "Normal Heart", "TGA", "VSD"]
+        predicted_class = predict_image(segmented_image_path, model, class_names, device)
 
         base_url = request.url_root.rstrip('/')
         segmented_image_url = f"{base_url}/results/{segmented_image_filename}"
@@ -114,7 +114,7 @@ def upload():
         logging.info(f"Processed in {duration:.2f} seconds")
 
         return jsonify({
-            "predictions": predictions,
+            "predictions": predicted_class,
             "annotations": data.get("shapes", []),
             "segmented_image": segmented_image_url,
             "processing_time_sec": round(duration, 2)
@@ -131,14 +131,6 @@ def serve_results(filename):
 @app.route('/uploads/<filename>')
 def serve_uploads(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
-
-# Optional: Cleanup files older than X minutes
-# def cleanup_folder(folder, max_age_minutes=30):
-#     now = time()
-#     for filename in os.listdir(folder):
-#         path = os.path.join(folder, filename)
-#         if os.path.isfile(path) and (now - os.path.getmtime(path)) > max_age_minutes * 60:
-#             os.remove(path)
 
 if __name__ == '__main__':
     initialize_model()
