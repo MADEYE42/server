@@ -6,7 +6,6 @@ import logging
 import cv2
 import torch
 from time import time
-
 from segmentation import load_json_and_image, draw_segmentation
 from prediction import predict_image, load_model
 
@@ -14,7 +13,7 @@ from prediction import predict_image, load_model
 app = Flask(__name__)
 CORS(app)
 
-# Directories
+# Folders
 UPLOAD_FOLDER = 'uploads'
 RESULTS_FOLDER = 'results'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -27,24 +26,26 @@ logging.basicConfig(level=logging.INFO)
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 ALLOWED_JSON_EXTENSIONS = {'json'}
 
-# Global model and device
+def allowed_file(filename, allowed_exts):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_exts
+
+# Model setup
 model = None
 model_loaded = False
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def allowed_file(filename, allowed_exts):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_exts
 
 def initialize_model():
     global model, model_loaded
     try:
         model_path = os.environ.get("MODEL_PATH", "model_path.pth")
-        logging.info(f"Loading model from {model_path} on device: {device}")
+        logging.info(f"Device: {device}")
+        logging.info(f"Looking for model at: {os.path.abspath(model_path)}")
+        logging.info(f"Contents of current directory: {os.listdir('.')}")
         model = load_model(model_path, num_classes=10, device=device)
         model_loaded = True
-        logging.info("Model loaded successfully")
+        logging.info("✅ Model loaded successfully")
     except Exception as e:
-        logging.error(f"Model load failed: {e}")
+        logging.error(f"❌ Model load failed: {e}")
         model_loaded = False
 
 @app.route('/')
@@ -83,17 +84,16 @@ def upload():
         if not allowed_file(json_file.filename, ALLOWED_JSON_EXTENSIONS):
             return jsonify({'error': 'Invalid JSON file type'}), 400
 
-        # Save files
         unique_id = str(uuid.uuid4())
         image_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}_{image_file.filename}")
         json_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}_{json_file.filename}")
+
         image_file.save(image_path)
         json_file.save(json_path)
 
-        # Load and process
         data, image = load_json_and_image(json_path, image_path)
         if data is None or image is None:
-            return jsonify({"error": "Failed to load image or JSON"}), 400
+            return jsonify({"error": "Failed to load files"}), 400
 
         segmented_image = draw_segmentation(data, image)
         if segmented_image is None:
@@ -103,13 +103,13 @@ def upload():
         segmented_image_path = os.path.join(RESULTS_FOLDER, segmented_image_filename)
         cv2.imwrite(segmented_image_path, segmented_image)
 
-        # Prediction
         class_names = ["3VT", "ARSA", "AVSD", "Dilated Cardiac Sinus", "ECIF", "HLHS", "LVOT", "Normal Heart", "TGA", "VSD"]
         predicted_class = predict_image(segmented_image_path, model, class_names, device)
 
-        segmented_image_url = f"{request.url_root.rstrip('/')}/results/{segmented_image_filename}"
-        duration = time() - start_time
+        base_url = request.url_root.rstrip('/')
+        segmented_image_url = f"{base_url}/results/{segmented_image_filename}"
 
+        duration = time() - start_time
         logging.info(f"Processed in {duration:.2f} seconds")
 
         return jsonify({
