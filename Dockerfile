@@ -1,23 +1,25 @@
-# Use a base image with Python 3.13
-FROM python:3.13-slim
+# Use Python 3.10 slim as the base image
+FROM python:3.10-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first and install dependencies
-COPY requirements.txt .
+# Install dependencies
 RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+
+# Copy all source code, including model file
 COPY . .
 
-# Expose the port for Cloud Run (default is 8080)
+# Set environment variables
+ENV MODEL_PATH=model_path.pth
+ENV FLASK_APP=app.py
+
+# Debugging: Check contents of /app
+RUN ls -l /app
+
+# Expose port for Cloud Run
 EXPOSE 8080
 
-# Command to run the app
+# Start app using Gunicorn
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "wsgi:app"]
