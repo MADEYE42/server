@@ -1,25 +1,25 @@
-# Use Python 3.10 slim as the base image
+# Use Python 3.10 slim image as base
 FROM python:3.10-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
 
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy all source code, including model file
+# Copy the rest of the application code
 COPY . .
 
 # Set environment variables
 ENV MODEL_PATH=model_path.pth
 ENV FLASK_APP=app.py
 
-# Debugging: Check contents of /app
-RUN ls -l /app
-
-# Expose port for Cloud Run
+# Expose port for Cloud Run or external access
 EXPOSE 8080
 
-# Start app using Gunicorn
+# Start the app using Gunicorn with WSGI entry point
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "wsgi:app"]
