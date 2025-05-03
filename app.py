@@ -5,7 +5,7 @@ import json
 import cv2
 import numpy as np
 from segmentation import load_json_and_image, draw_segmentation
-from prediction import predict_single_image, load_model
+from prediction import predict_image, load_model
 from PIL import Image
 import torch
 import logging
