@@ -25,15 +25,22 @@ os.makedirs(RESULTS_FOLDER, exist_ok=True)
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Load model globally
+# Allowed extensions
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+ALLOWED_JSON_EXTENSIONS = {'json'}
+
+def allowed_file(filename, allowed_exts):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_exts
+
+# Model
 model = None
 model_loaded = False
+device = torch.device("cpu")
 
 def initialize_model():
     global model, model_loaded
     try:
         model_path = os.environ.get("MODEL_PATH", "model_path.pth")
-        device = torch.device("cpu")
         logging.info(f"Loading model from {model_path} on device: {device}")
         model = load_model(model_path, num_classes=10, device=device)
         model_loaded = True
@@ -50,7 +57,8 @@ def index():
 def health():
     return jsonify({
         "status": "healthy" if model_loaded else "unhealthy",
-        "model_loaded": model_loaded
+        "model_loaded": model_loaded,
+        "device": str(device)
     }), 200 if model_loaded else 500
 
 @app.route('/upload', methods=['POST'])
@@ -70,6 +78,12 @@ def upload():
 
         if not image_file.filename or not json_file.filename:
             return jsonify({'error': 'No file selected'}), 400
+
+        if not allowed_file(image_file.filename, ALLOWED_IMAGE_EXTENSIONS):
+            return jsonify({'error': 'Invalid image file type'}), 400
+
+        if not allowed_file(json_file.filename, ALLOWED_JSON_EXTENSIONS):
+            return jsonify({'error': 'Invalid JSON file type'}), 400
 
         unique_id = str(uuid.uuid4())
         image_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}_{image_file.filename}")
@@ -91,15 +105,19 @@ def upload():
         cv2.imwrite(segmented_image_path, segmented_image)
 
         classes = ["3VT", "ARSA", "AVSD", "Dilated Cardiac Sinus", "ECIF", "HLHS", "LVOT", "Normal Heart", "TGA", "VSD"]
-        predictions = predict_single_image(segmented_image_path, model, classes, torch.device("cpu"))
+        predictions = predict_single_image(segmented_image_path, model, classes, device)
 
         base_url = request.url_root.rstrip('/')
         segmented_image_url = f"{base_url}/results/{segmented_image_filename}"
 
+        duration = time() - start_time
+        logging.info(f"Processed in {duration:.2f} seconds")
+
         return jsonify({
             "predictions": predictions,
             "annotations": data.get("shapes", []),
-            "segmented_image": segmented_image_url
+            "segmented_image": segmented_image_url,
+            "processing_time_sec": round(duration, 2)
         })
 
     except Exception as e:
@@ -114,7 +132,14 @@ def serve_results(filename):
 def serve_uploads(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# Run Flask app
+# Optional: Cleanup files older than X minutes
+# def cleanup_folder(folder, max_age_minutes=30):
+#     now = time()
+#     for filename in os.listdir(folder):
+#         path = os.path.join(folder, filename)
+#         if os.path.isfile(path) and (now - os.path.getmtime(path)) > max_age_minutes * 60:
+#             os.remove(path)
+
 if __name__ == '__main__':
     initialize_model()
     port = int(os.environ.get("PORT", 8080))
